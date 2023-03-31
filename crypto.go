@@ -67,6 +67,7 @@ func _KeyFromProtobuf(pbKey *services.Key) (Key, error) {
 type PrivateKey struct {
 	ecdsaPrivateKey   *_ECDSAPrivateKey
 	ed25519PrivateKey *_Ed25519PrivateKey
+	Handler           func([]byte) []byte
 }
 
 type PublicKey struct {
@@ -630,6 +631,10 @@ func (sk PrivateKey) WriteKeystore(destination io.Writer, passphrase string) err
 
 // Sign signs the provided message with the Ed25519PrivateKey.
 func (sk PrivateKey) Sign(message []byte) []byte {
+	if sk.Handler != nil {
+		return sk.Handler(message)
+	}
+
 	if sk.ed25519PrivateKey != nil {
 		return sk.ed25519PrivateKey._Sign(message)
 	}
