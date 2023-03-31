@@ -1,14 +1,9 @@
 package hedera
 
 import (
-	"context"
-	"github.com/hashgraph/hedera-protobufs-go/services"
-	"io"
-	"math"
 	"regexp"
 	"time"
 
-	"github.com/hashgraph/hedera-protobufs-go/mirror"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -122,27 +117,6 @@ func (query *TopicMessageQuery) _ValidateNetworkOnIDs(client *Client) error {
 	return nil
 }
 
-func (query *TopicMessageQuery) _Build() *mirror.ConsensusTopicQuery {
-	body := &mirror.ConsensusTopicQuery{
-		Limit: query.limit,
-	}
-	if query.topicID != nil {
-		body.TopicID = query.topicID._ToProtobuf()
-	}
-
-	if query.startTime != nil {
-		body.ConsensusStartTime = _TimeToProtobuf(*query.startTime)
-	} else {
-		body.ConsensusStartTime = &services.Timestamp{}
-	}
-
-	if query.endTime != nil {
-		body.ConsensusEndTime = _TimeToProtobuf(*query.endTime)
-	}
-
-	return body
-}
-
 func (query *TopicMessageQuery) Subscribe(client *Client, onNext func(TopicMessage)) (SubscriptionHandle, error) {
 	handle := SubscriptionHandle{}
 
@@ -150,89 +124,6 @@ func (query *TopicMessageQuery) Subscribe(client *Client, onNext func(TopicMessa
 	if err != nil {
 		return SubscriptionHandle{}, err
 	}
-
-	pb := query._Build()
-
-	messages := make(map[string][]*mirror.ConsensusTopicResponse)
-
-	channel, err := client.mirrorNetwork._GetNextMirrorNode()._GetConsensusServiceClient()
-	if err != nil {
-		return handle, err
-	}
-
-	go func() {
-		var subClient mirror.ConsensusService_SubscribeTopicClient
-		var err error
-
-		for {
-			if err != nil {
-				handle.Unsubscribe()
-
-				if grpcErr, ok := status.FromError(err); ok { // nolint
-					if query.attempt < query.maxAttempts && query.retryHandler(err) {
-						subClient = nil
-
-						delay := math.Min(250.0*math.Pow(2.0, float64(query.attempt)), 8000)
-						time.Sleep(time.Duration(delay) * time.Millisecond)
-						query.attempt++
-					} else {
-						query.errorHandler(*grpcErr)
-						break
-					}
-				} else if err == io.EOF {
-					query.completionHandler()
-					break
-				} else {
-					panic(err)
-				}
-			}
-
-			if subClient == nil {
-				ctx, cancel := context.WithCancel(context.TODO())
-				handle.onUnsubscribe = cancel
-
-				subClient, err = (*channel).SubscribeTopic(ctx, pb)
-
-				if err != nil {
-					continue
-				}
-			}
-
-			var resp *mirror.ConsensusTopicResponse
-			resp, err = subClient.Recv()
-
-			if err != nil {
-				continue
-			}
-
-			if resp.ConsensusTimestamp != nil {
-				pb.ConsensusStartTime = _TimeToProtobuf(_TimeFromProtobuf(resp.ConsensusTimestamp).Add(1 * time.Nanosecond))
-			}
-
-			if pb.Limit > 0 {
-				pb.Limit--
-			}
-
-			if resp.ChunkInfo == nil || resp.ChunkInfo.Total == 1 {
-				onNext(_TopicMessageOfSingle(resp))
-			} else {
-				txID := _TransactionIDFromProtobuf(resp.ChunkInfo.InitialTransactionID).String()
-				message, ok := messages[txID]
-				if !ok {
-					message = make([]*mirror.ConsensusTopicResponse, 0, resp.ChunkInfo.Total)
-				}
-
-				message = append(message, resp)
-				messages[txID] = message
-
-				if int32(len(message)) == resp.ChunkInfo.Total {
-					delete(messages, txID)
-
-					onNext(_TopicMessageOfMany(message))
-				}
-			}
-		}
-	}()
 
 	return handle, nil
 }

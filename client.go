@@ -229,7 +229,6 @@ func _NewClient(network map[string]AccountID, mirrorNetwork []string, name Netwo
 		maxQueryPayment:                 defaultMaxQueryPayment,
 		maxTransactionFee:               defaultMaxTransactionFee,
 		network:                         _NewNetwork(),
-		mirrorNetwork:                   _NewMirrorNetwork(),
 		autoValidateChecksums:           false,
 		maxAttempts:                     nil,
 		minBackoff:                      250 * time.Millisecond,
@@ -238,7 +237,6 @@ func _NewClient(network map[string]AccountID, mirrorNetwork []string, name Netwo
 	}
 
 	_ = client.SetNetwork(network)
-	client.SetMirrorNetwork(mirrorNetwork)
 	client.network._SetNetworkName(name)
 
 	return &client
@@ -499,12 +497,6 @@ func (client *Client) GetNodeMaxBackoff() time.Duration {
 
 func (client *Client) SetMaxNodesPerTransaction(max int) {
 	client.network._SetMaxNodesPerTransaction(max)
-}
-
-// SetNetwork replaces all _Nodes in the Client with a new set of _Nodes.
-// (e.g. for an Address Book update).
-func (client *Client) SetMirrorNetwork(mirrorNetwork []string) {
-	_ = client.mirrorNetwork._SetNetwork(mirrorNetwork)
 }
 
 func (client *Client) GetMirrorNetwork() []string {
